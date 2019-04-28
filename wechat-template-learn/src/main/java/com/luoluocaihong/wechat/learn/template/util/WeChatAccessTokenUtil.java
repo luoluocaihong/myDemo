@@ -92,16 +92,17 @@ public class WeChatAccessTokenUtil {
                         batch.execute();
 
                         //判断老的accessToken是否可用
-                        if (accessTokenLastUpdateAsync.getAsync().get() == null) {
+                        if (redissonClient.getBucket(ACCESSTOKEN_LASTUPDATE).get() == null) {
                             accessToken = null;
-                        }
-                        //获取锁之后，首先查询redis ，如果redis中存在则不再需要调用微信接口了  这里是考虑分布式的场景
-                        if (accessTokenAsync.getAsync().get() != null) {
-                            accessToken = accessTokenCache.get();
                         }
                         callFlag = false;
 
-                        if (accessTokenAsync.getAsync().get() == null)  {
+                        //获取锁之后，首先查询redis ，如果redis中存在则不再需要调用微信接口了  这里是考虑分布式的场景
+                        accessTokenCache = redissonClient.getBucket(ACCESSTOKEN);
+                        if (accessTokenCache != null && !StringUtils.isEmpty(accessTokenCache.get())) {
+                            accessToken = accessTokenCache.get();
+                        }
+                        else  {
                             //调用微信的接口查询ACCESS_TOKEN
                             WeChatAccessTokenResp accessTokenResp =  getAccessTokenFromWechat();
                             accessToken = accessTokenResp.getAccessToken();
