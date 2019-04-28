@@ -7,6 +7,7 @@ import com.luoluocaihong.wechat.learn.template.dto.resp.WeChatAccessTokenResp;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBatch;
 import org.redisson.api.RBucket;
+import org.redisson.api.RBucketAsync;
 import org.redisson.api.RedissonClient;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
@@ -85,18 +86,22 @@ public class WeChatAccessTokenUtil {
                     try {
                         latch = new CountDownLatch(1);
 
+                        RBatch batch = redissonClient.createBatch();
+                        RBucketAsync accessTokenLastUpdateAsync = batch.getBucket(ACCESSTOKEN_LASTUPDATE);
+                        RBucketAsync accessTokenAsync = batch.getBucket(ACCESSTOKEN);
+                        batch.execute();
+
                         //判断老的accessToken是否可用
-                        if (redissonClient.getBucket(ACCESSTOKEN_LASTUPDATE).get() == null) {
+                        if (accessTokenLastUpdateAsync.getAsync().get() == null) {
                             accessToken = null;
+                        }
+                        //获取锁之后，首先查询redis ，如果redis中存在则不再需要调用微信接口了  这里是考虑分布式的场景
+                        if (accessTokenAsync.getAsync().get() != null) {
+                            accessToken = accessTokenCache.get();
                         }
                         callFlag = false;
 
-                        //获取锁之后，首先查询redis ，如果redis中存在则不再需要调用微信接口了  这里是考虑分布式的场景
-                        accessTokenCache = redissonClient.getBucket(ACCESSTOKEN);
-                        if (accessTokenCache != null && !StringUtils.isEmpty(accessTokenCache.get())) {
-                            accessToken = accessTokenCache.get();
-                        }
-                        else {
+                        if (accessTokenAsync.getAsync().get() == null)  {
                             //调用微信的接口查询ACCESS_TOKEN
                             WeChatAccessTokenResp accessTokenResp =  getAccessTokenFromWechat();
                             accessToken = accessTokenResp.getAccessToken();
@@ -108,7 +113,7 @@ public class WeChatAccessTokenUtil {
                             }
 
                             //批量更新缓存
-                            RBatch batch = redissonClient.createBatch();
+                            batch = redissonClient.createBatch();
                             batch.getBucket(ACCESSTOKEN).setAsync(accessToken, expire, TimeUnit.SECONDS);
                             batch.getBucket(ACCESSTOKEN_LASTUPDATE).setAsync(System.currentTimeMillis(), expire + 300, TimeUnit.SECONDS);
                             batch.execute();
