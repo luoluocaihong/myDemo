@@ -106,8 +106,9 @@ public class WeChatAccessTokenUtil {
                             //调用微信的接口查询ACCESS_TOKEN
                             WeChatAccessTokenResp accessTokenResp =  getAccessTokenFromWechat();
                             accessToken = accessTokenResp.getAccessToken();
+                            //放到finally块里,因为可能存在网络等问题导致上面掉微信接口报错，导致永远无法唤醒其他线程
                             //共享变量accessToken已经设置新值为可用的accessToken，通知其他线程
-                            latch.countDown();
+                            //latch.countDown();
                             Long expire = accessTokenResp.getExpiresIn();
                             if (expire > 200) {
                                 expire -= 200;
@@ -121,6 +122,8 @@ public class WeChatAccessTokenUtil {
                         }
                     }
                     finally {
+                        //共享变量accessToken已经设置新值为可用的accessToken，通知其他线程
+                        latch.countDown();
                         innerFlag = false;
                         //还原
                         callFlag = true;
